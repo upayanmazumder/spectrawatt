@@ -196,9 +196,10 @@ func PostDataHandler(w http.ResponseWriter, r *http.Request) {
 	if err := decoder.Decode(&payload); err != nil {
 		var syntaxErr *json.SyntaxError
 		var unmarshalTypeErr *json.UnmarshalTypeError
+		var maxBytesErr *http.MaxBytesError
 
 		switch {
-		case errors.Is(err, http.ErrBodyTooLarge):
+		case errors.As(err, &maxBytesErr):
 			http.Error(w, "Payload too large", http.StatusRequestEntityTooLarge)
 		case errors.Is(err, io.EOF):
 			http.Error(w, "Request body is empty", http.StatusBadRequest)
