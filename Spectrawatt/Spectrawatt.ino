@@ -1,11 +1,11 @@
 #include "EmonLib.h"
+#include <ArduinoJson.h>
+#include <HTTPClient.h>
 #include <WiFi.h>
 #include <WiFiClientSecure.h>
-#include <PubSubClient.h>
-#include <ArduinoJson.h>
 #include <cstring>
 
-#define MQTT_USE_TLS 1
+#define API_USE_TLS 1
 
 // ---------------- OBJECTS ----------------
 EnergyMonitor emon;
@@ -14,21 +14,20 @@ EnergyMonitor emon;
 const char ssid[] = "Solace";
 const char pass[] = "damnbrodamn";
 
-// ---------------- MQTT ----------------
-const char mqttHost[] = "mqtt.upayan.dev";
-#if MQTT_USE_TLS
-const uint16_t mqttPort = 8883;
-const char mqttCaCert[] = ""; // Add the CA certificate for mqtt.upayan.dev; falls back to insecure if left empty
-WiFiClientSecure mqttNet;
+// ---------------- REST API ----------------
+const char apiHost[] = "api.spectrawatt.upayan.dev";
+const char apiPath[] = "/api/data";
+const uint16_t apiPort = API_USE_TLS ? 443 : 80;
+const char apiCaCert[] = ""; // Add the CA certificate for api.spectrawatt.upayan.dev; falls back to insecure if left empty
+#if API_USE_TLS
+WiFiClientSecure apiClient;
 #else
-const uint16_t mqttPort = 1883;
-WiFiClient mqttNet;
+WiFiClient apiClient;
 #endif
+HTTPClient httpClient;
+
 const char deviceID[] = "Sonnet";
 const float nominalVrms = 230.0;
-
-PubSubClient mqttClient(mqttNet);
-String mqttTopic = String("spectrawatt/") + deviceID + "/energy";
 
 // ---------------- CALIBRATION ----------------
 #define CURRENT_PIN 34
@@ -38,23 +37,19 @@ String mqttTopic = String("spectrawatt/") + deviceID + "/energy";
 unsigned long lastSend = 0;
 const unsigned long interval = 333; // ~3 Hz
 
-bool ensureMqttConnected();
-void publishReading(float irms);
+bool postReading(float irms);
 
 // ---------------- SETUP ----------------
 void setup() {
   Serial.begin(115200);
 
-#if MQTT_USE_TLS
-  if (strlen(mqttCaCert) > 0) {
-    mqttNet.setCACert(mqttCaCert);
+#if API_USE_TLS
+  if (strlen(apiCaCert) > 0) {
+    apiClient.setCACert(apiCaCert);
   } else {
-    mqttNet.setInsecure(); // TLS without certificate validation; replace mqttCaCert for full verification
+    apiClient.setInsecure(); // TLS without certificate validation; replace apiCaCert for full verification
   }
 #endif
-
-  mqttClient.setServer(mqttHost, mqttPort);
-  mqttClient.setBufferSize(256);
 
   analogSetPinAttenuation(CURRENT_PIN, ADC_11db);
   emon.current(CURRENT_PIN, currCalibration);
@@ -67,55 +62,27 @@ void setup() {
 
   Serial.println("\nWiFi Connected");
   Serial.println("irms");
-  Serial.print("MQTT broker: ");
-  Serial.print(mqttHost);
-  Serial.print(":");
-  Serial.println(mqttPort);
+  Serial.print("API endpoint: ");
+  Serial.print(API_USE_TLS ? "https://" : "http://");
+  Serial.print(apiHost);
+  Serial.println(apiPath);
 }
 
 // ---------------- LOOP ----------------
 void loop() {
-  if (!mqttClient.connected()) {
-    ensureMqttConnected();
-  }
-  mqttClient.loop();
-
   if (millis() - lastSend >= interval) {
     lastSend = millis();
 
     float irms = emon.calcIrms(1480);
     Serial.println(irms, 4);
 
-    publishReading(irms);
+    postReading(irms);
   }
 }
 
-bool ensureMqttConnected() {
-  if (mqttClient.connected()) {
-    return true;
-  }
-
-  Serial.println("Connecting to MQTT...");
-  while (!mqttClient.connected()) {
-    String clientId = String("spectrawatt-") + deviceID + "-" + String((uint32_t)millis(), HEX);
-
-    if (mqttClient.connect(clientId.c_str())) {
-      Serial.println("MQTT connected");
-      break;
-    }
-
-    Serial.print("MQTT connect failed, rc=");
-    Serial.print(mqttClient.state());
-    Serial.println(". Retrying in 2s");
-    delay(2000);
-  }
-
-  return mqttClient.connected();
-}
-
-void publishReading(float irms) {
-  if (!mqttClient.connected() && !ensureMqttConnected()) {
-    return;
+bool postReading(float irms) {
+  if (WiFi.status() != WL_CONNECTED) {
+    return false;
   }
 
   float apparentPower = nominalVrms * irms;
@@ -126,8 +93,31 @@ void publishReading(float irms) {
   doc["vrms"] = nominalVrms;
   doc["apparent_power"] = apparentPower;
 
-  char buffer[192];
-  size_t len = serializeJson(doc, buffer);
+  char payload[192];
+  size_t len = serializeJson(doc, payload);
 
-  mqttClient.publish(mqttTopic.c_str(), (uint8_t*)buffer, len, false);
+  String url = (API_USE_TLS ? "https://" : "http://");
+  url += apiHost;
+  if ((API_USE_TLS && apiPort != 443) || (!API_USE_TLS && apiPort != 80)) {
+    url += ":";
+    url += apiPort;
+  }
+  url += apiPath;
+
+  httpClient.begin(apiClient, url);
+  httpClient.addHeader("Content-Type", "application/json");
+  int status = httpClient.POST((uint8_t*)payload, len);
+
+  if (status > 0) {
+    Serial.print("POST ");
+    Serial.print(url);
+    Serial.print(" -> ");
+    Serial.println(status);
+  } else {
+    Serial.print("HTTP POST failed: ");
+    Serial.println(httpClient.errorToString(status));
+  }
+
+  httpClient.end();
+  return status >= 200 && status < 300;
 }
