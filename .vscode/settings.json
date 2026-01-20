@@ -1,3 +1,13 @@
 {
-    "colorWheel.settings.workspaceColor": "hsl(101,77%,38%)"
+	"colorWheel.settings.workspaceColor": "hsl(101,77%,38%)",
+	"cSpell.words": [
+		"bson",
+		"Irms",
+		"mqtt",
+		"mqtts",
+		"paho",
+		"spectrawatt",
+		"vercel",
+		"Vrms"
+	]
 }
