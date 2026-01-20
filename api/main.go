@@ -22,10 +22,7 @@ import (
 	"go.mongodb.org/mongo-driver/mongo/options"
 )
 
-const (
-	maxPayloadBytes     int64 = 1 << 20
-	defaultVrmsFallback       = 230.0
-)
+const maxPayloadBytes int64 = 1 << 20
 
 // EnergyData represents the energy monitoring data from ESP32
 type EnergyData struct {
@@ -69,13 +66,6 @@ func parseOptionalNumber(raw json.Number, field string) (float64, error) {
 	return parseRequiredNumber(raw, field)
 }
 
-func parseNumberWithDefault(raw json.Number, field string, fallback float64) (float64, error) {
-	if raw == "" {
-		return fallback, nil
-	}
-	return parseRequiredNumber(raw, field)
-}
-
 func parseTimestamp(ts string) (time.Time, error) {
 	if strings.TrimSpace(ts) == "" {
 		return time.Now().UTC(), nil
@@ -93,23 +83,7 @@ func parseTimestamp(ts string) (time.Time, error) {
 var (
 	mongoClient      *mongo.Client
 	energyCollection *mongo.Collection
-
-	defaultVrms float64 = defaultVrmsFallback
 )
-
-func loadDefaultVrms() float64 {
-	raw := strings.TrimSpace(os.Getenv("DEFAULT_VRMS"))
-	if raw == "" {
-		return defaultVrmsFallback
-	}
-
-	val, err := strconv.ParseFloat(raw, 64)
-	if err != nil || math.IsNaN(val) || math.IsInf(val, 0) {
-		log.Printf("Invalid DEFAULT_VRMS=%q, using fallback %.2fV", raw, defaultVrmsFallback)
-		return defaultVrmsFallback
-	}
-	return val
-}
 
 // initMongoDB initializes MongoDB connection
 func initMongoDB() error {
@@ -173,51 +147,6 @@ func initMongoDB() error {
 	return nil
 }
 
-func buildEnergyData(payload energyPayload) (EnergyData, error) {
-	deviceID := strings.TrimSpace(payload.DeviceID)
-	if deviceID == "" {
-		return EnergyData{}, errors.New("device_id is required")
-	}
-
-	vrms, err := parseNumberWithDefault(payload.Vrms, "vrms", defaultVrms)
-	if err != nil {
-		return EnergyData{}, err
-	}
-
-	irms, err := parseRequiredNumber(payload.Irms, "irms")
-	if err != nil {
-		return EnergyData{}, err
-	}
-
-	apparentPower, err := parseOptionalNumber(payload.ApparentPower, "apparent_power")
-	if err != nil {
-		return EnergyData{}, err
-	}
-
-	wh, err := parseOptionalNumber(payload.Wh, "wh")
-	if err != nil {
-		return EnergyData{}, err
-	}
-
-	if apparentPower == 0 {
-		apparentPower = vrms * irms
-	}
-
-	timestamp, err := parseTimestamp(payload.Timestamp)
-	if err != nil {
-		return EnergyData{}, err
-	}
-
-	return EnergyData{
-		DeviceID:      deviceID,
-		Timestamp:     timestamp,
-		Vrms:          vrms,
-		Irms:          irms,
-		ApparentPower: apparentPower,
-		Wh:            wh,
-	}, nil
-}
-
 // HealthCheckHandler handles health check requests
 func HealthCheckHandler(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
@@ -267,10 +196,9 @@ func PostDataHandler(w http.ResponseWriter, r *http.Request) {
 	if err := decoder.Decode(&payload); err != nil {
 		var syntaxErr *json.SyntaxError
 		var unmarshalTypeErr *json.UnmarshalTypeError
-		var maxBytesErr *http.MaxBytesError
 
 		switch {
-		case errors.As(err, &maxBytesErr):
+		case errors.Is(err, http.ErrBodyTooLarge):
 			http.Error(w, "Payload too large", http.StatusRequestEntityTooLarge)
 		case errors.Is(err, io.EOF):
 			http.Error(w, "Request body is empty", http.StatusBadRequest)
@@ -284,10 +212,53 @@ func PostDataHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	data, err := buildEnergyData(payload)
+	deviceID := strings.TrimSpace(payload.DeviceID)
+	if deviceID == "" {
+		http.Error(w, "device_id is required", http.StatusBadRequest)
+		return
+	}
+
+	vrms, err := parseRequiredNumber(payload.Vrms, "vrms")
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
+	}
+
+	irms, err := parseRequiredNumber(payload.Irms, "irms")
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+
+	apparentPower, err := parseOptionalNumber(payload.ApparentPower, "apparent_power")
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+
+	wh, err := parseOptionalNumber(payload.Wh, "wh")
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+
+	if apparentPower == 0 {
+		apparentPower = vrms * irms
+	}
+
+	timestamp, err := parseTimestamp(payload.Timestamp)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+
+	data := EnergyData{
+		DeviceID:      deviceID,
+		Timestamp:     timestamp,
+		Vrms:          vrms,
+		Irms:          irms,
+		ApparentPower: apparentPower,
+		Wh:            wh,
 	}
 
 	// Store data in MongoDB
@@ -548,9 +519,6 @@ func LoggingMiddleware(next http.Handler) http.Handler {
 }
 
 func main() {
-	defaultVrms = loadDefaultVrms()
-	log.Printf("Default Vrms set to %.2fV", defaultVrms)
-
 	// Initialize MongoDB
 	if err := initMongoDB(); err != nil {
 		log.Fatalf("Failed to connect to MongoDB: %v", err)
@@ -585,7 +553,7 @@ func main() {
 	log.Printf("Starting Spectrawatt API server on port %s", port)
 	log.Printf("Endpoints:")
 	log.Printf("  POST   /api/data - Submit energy data")
-	log.Printf("  GET    /api/data - Get all energy data")
+	log.Printf("  GET    /api/data - Get all energy data (latest 100)")
 	log.Printf("  GET    /api/data/grouped - Get data grouped by device")
 	log.Printf("  GET    /api/data/latest - Get latest data point")
 	log.Printf("  GET    /api/data/device/{device_id} - Get data for specific device")

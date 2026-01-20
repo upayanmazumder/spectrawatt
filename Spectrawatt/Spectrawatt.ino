@@ -1,123 +1,118 @@
-#include "EmonLib.h"
-#include <ArduinoJson.h>
-#include <HTTPClient.h>
-#include <WiFi.h>
-#include <WiFiClientSecure.h>
-#include <cstring>
+#define BLYNK_PRINT Serial
+#define BLYNK_TEMPLATE_ID "TMPL3HXGLadVP"
+#define BLYNK_TEMPLATE_NAME "ioteehee"
 
-#define API_USE_TLS 1
+#include "EmonLib.h"
+#include <WiFi.h>
+#include <WiFiClient.h>
+#include <BlynkSimpleEsp32.h>
+#include <HTTPClient.h>
+#include <ArduinoJson.h>
 
 // ---------------- OBJECTS ----------------
 EnergyMonitor emon;
-
-// ---------------- WIFI ----------------
-const char ssid[] = "Solace";
-const char pass[] = "damnbrodamn";
-
-// ---------------- REST API ----------------
-const char apiHost[] = "api.spectrawatt.upayan.dev";
-const char apiPath[] = "/api/data";
-const uint16_t apiPort = API_USE_TLS ? 443 : 80;
-const char apiCaCert[] = ""; // Add the CA certificate for api.spectrawatt.upayan.dev; falls back to insecure if left empty
-#if API_USE_TLS
-WiFiClientSecure apiClient;
-#else
-WiFiClient apiClient;
-#endif
-HTTPClient httpClient;
-
-const char deviceID[] = "Sonnet";
-const float nominalVrms = 230.0;
+BlynkTimer timer;
 
 // ---------------- CALIBRATION ----------------
-#define CURRENT_PIN 34
+// 🔥 FIXED: Voltage calibration doubled (120V → 240V issue)
+#define vCalibration 213.6
 #define currCalibration 0.52
 
-// ---------------- TIMING ----------------
-unsigned long lastSend = 0;
-const unsigned long interval = 333; // ~3 Hz
+// ---------------- BLYNK ----------------
+char auth[] = "0cO_QnCFHs10T6hE6pY8VeiXV2a_ikZx";
+char ssid[] = "Solace";
+char pass[] = "damnbrodamn";
 
-bool postReading(float irms);
+// ---------------- API ----------------
+const char* apiEndpoint = "https://api.spectrawatt.upayan.dev/api/data";
+const char* deviceID = "Sonnet";
+
+// ---------------- ENERGY ----------------
+float wattHours = 0.0;
+unsigned long lastmillis = 0;
+
+// ---------------- API SEND FUNCTION ----------------
+void sendDataToAPI(float vrms, float irms, float power, float wh) {
+  if (WiFi.status() == WL_CONNECTED) {
+    HTTPClient http;
+    http.begin(apiEndpoint);
+    http.addHeader("Content-Type", "application/json");
+
+    StaticJsonDocument<256> doc;
+    doc["device_id"] = deviceID;
+    doc["vrms"] = vrms;
+    doc["irms"] = irms;
+    doc["apparent_power"] = power;
+    doc["wh"] = wh;
+
+    String payload;
+    serializeJson(doc, payload);
+
+    int code = http.POST(payload);
+    Serial.println(code > 0 ? "API Sent" : "API Error");
+
+    http.end();
+  }
+}
+
+// ---------------- TIMER EVENT ----------------
+void myTimerEvent() {
+  emon.calcVI(20, 2000);   // 20 AC cycles, 2s timeout
+
+  unsigned long now = millis();
+  float deltaHours = (now - lastmillis) / 3600000.0;
+  lastmillis = now;
+
+  wattHours += emon.apparentPower * deltaHours;
+
+  // -------- SERIAL OUTPUT --------
+  Serial.print("Vrms: ");
+  Serial.print(emon.Vrms, 2);
+  Serial.print(" V\t");
+
+  Serial.print("Irms: ");
+  Serial.print(emon.Irms, 4);
+  Serial.print(" A\t");
+
+  Serial.print("Power: ");
+  Serial.print(emon.apparentPower, 2);
+  Serial.print(" W\t");
+
+  Serial.print("Energy: ");
+  Serial.print(wattHours, 6);
+  Serial.println(" Wh");
+
+  // -------- BLYNK --------
+  Blynk.virtualWrite(V0, emon.Vrms);
+  Blynk.virtualWrite(V1, emon.Irms);
+  Blynk.virtualWrite(V2, emon.apparentPower);
+  Blynk.virtualWrite(V3, wattHours);
+
+  // -------- API --------
+  sendDataToAPI(emon.Vrms, emon.Irms, emon.apparentPower, wattHours);
+}
 
 // ---------------- SETUP ----------------
 void setup() {
   Serial.begin(115200);
 
-#if API_USE_TLS
-  if (strlen(apiCaCert) > 0) {
-    apiClient.setCACert(apiCaCert);
-  } else {
-    apiClient.setInsecure(); // TLS without certificate validation; replace apiCaCert for full verification
-  }
-#endif
+  // ✅ ESP32 ADC FIX (CRITICAL)
+  analogSetPinAttenuation(34, ADC_11db); // Current
+  analogSetPinAttenuation(35, ADC_11db); // Voltage
 
-  analogSetPinAttenuation(CURRENT_PIN, ADC_11db);
-  emon.current(CURRENT_PIN, currCalibration);
+  // Voltage pin = GPIO 35
+  // Current pin = GPIO 34
+  emon.voltage(35, vCalibration, 1.7);
+  emon.current(34, currCalibration);
 
-  WiFi.begin(ssid, pass);
-  while (WiFi.status() != WL_CONNECTED) {
-    delay(500);
-    Serial.print(".");
-  }
+  Blynk.begin(auth, ssid, pass);
 
-  Serial.println("\nWiFi Connected");
-  Serial.println("irms");
-  Serial.print("API endpoint: ");
-  Serial.print(API_USE_TLS ? "https://" : "http://");
-  Serial.print(apiHost);
-  Serial.println(apiPath);
+  lastmillis = millis();
+  timer.setInterval(1000L, myTimerEvent);
 }
 
 // ---------------- LOOP ----------------
 void loop() {
-  if (millis() - lastSend >= interval) {
-    lastSend = millis();
-
-    float irms = emon.calcIrms(1480);
-    Serial.println(irms, 4);
-
-    postReading(irms);
-  }
-}
-
-bool postReading(float irms) {
-  if (WiFi.status() != WL_CONNECTED) {
-    return false;
-  }
-
-  float apparentPower = nominalVrms * irms;
-
-  StaticJsonDocument<192> doc;
-  doc["device_id"] = deviceID;
-  doc["irms"] = irms;
-  doc["vrms"] = nominalVrms;
-  doc["apparent_power"] = apparentPower;
-
-  char payload[192];
-  size_t len = serializeJson(doc, payload);
-
-  String url = (API_USE_TLS ? "https://" : "http://");
-  url += apiHost;
-  if ((API_USE_TLS && apiPort != 443) || (!API_USE_TLS && apiPort != 80)) {
-    url += ":";
-    url += apiPort;
-  }
-  url += apiPath;
-
-  httpClient.begin(apiClient, url);
-  httpClient.addHeader("Content-Type", "application/json");
-  int status = httpClient.POST((uint8_t*)payload, len);
-
-  if (status > 0) {
-    Serial.print("POST ");
-    Serial.print(url);
-    Serial.print(" -> ");
-    Serial.println(status);
-  } else {
-    Serial.print("HTTP POST failed: ");
-    Serial.println(httpClient.errorToString(status));
-  }
-
-  httpClient.end();
-  return status >= 200 && status < 300;
+  Blynk.run();
+  timer.run();
 }
