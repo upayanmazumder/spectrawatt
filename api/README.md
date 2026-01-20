@@ -5,6 +5,7 @@ Go backend API for collecting energy monitoring data from ESP32 devices with Mon
 ## Features
 
 - RESTful API for receiving energy data from ESP32
+- MQTT ingestion pipeline for devices publishing readings
 - **MongoDB persistence** for reliable data storage
 - Store and retrieve energy monitoring data
 - CORS enabled for web clients
@@ -55,6 +56,30 @@ This starts both MongoDB and the API server. The API will be available at `http:
    ```bash
    go run main.go
    ```
+
+## MQTT Ingest
+
+The API subscribes to an MQTT broker (default: `tcp://localhost:1883`) and listens on `spectrawatt/+/energy`.
+
+Example payload published by devices:
+
+```json
+{
+	"device_id": "ESP32_001",
+	"irms": 1.234,
+	"vrms": 230.0, // optional; defaults to DEFAULT_VRMS when omitted
+	"apparent_power": 284.5, // optional; computed from vrms * irms when omitted
+	"timestamp": "2026-01-19T10:30:00Z"
+}
+```
+
+Environment variables:
+
+- `MQTT_BROKER_URL` (e.g., `ssl://mqtt.upayan.dev:8883` for TLS)
+- `MQTT_TOPIC` (default `spectrawatt/+/energy`)
+- `MQTT_CLIENT_ID`, `MQTT_USERNAME`, `MQTT_PASSWORD`
+- `MQTT_CA_CERT_PATH`, `MQTT_TLS_INSECURE`
+- `DEFAULT_VRMS` for devices that do not send Vrms
 
 ## API Endpoints
 
