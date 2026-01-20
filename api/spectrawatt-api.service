@@ -1,0 +1,23 @@
+[Unit]
+Description=Spectrawatt API Service
+After=network.target
+
+[Service]
+Type=simple
+User=spectrawatt
+WorkingDirectory=/opt/spectrawatt-api
+ExecStart=/opt/spectrawatt-api/spectrawatt-api
+Restart=always
+RestartSec=10
+
+# Security
+NoNewPrivileges=true
+PrivateTmp=true
+
+# Logging
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=spectrawatt-api
+
+[Install]
+WantedBy=multi-user.target
