@@ -27,32 +27,92 @@ char pass[] = "damnbrodamn";
 const char* apiEndpoint = "https://api.spectrawatt.upayan.dev/api/data";
 const char* deviceID = "Sonnet";
 
+// ---------------- BATCHING ----------------
+const size_t batchTarget = 20;              // target readings before flush
+const unsigned long sampleIntervalMs = 333; // ~3 readings/sec
+const unsigned long maxBatchAgeMs = 5000;   // flush even if not full after this
+
+struct DataPoint {
+  float vrms;
+  float irms;
+  float apparentPower;
+  float wh;
+};
+
+DataPoint dataBuffer[batchTarget];
+size_t bufferCount = 0;
+unsigned long lastBatchFlush = 0;
+
 // ---------------- ENERGY ----------------
 float wattHours = 0.0;
 unsigned long lastmillis = 0;
 
-// ---------------- API SEND FUNCTION ----------------
-void sendDataToAPI(float vrms, float irms, float power, float wh) {
-  if (WiFi.status() == WL_CONNECTED) {
-    HTTPClient http;
-    http.begin(apiEndpoint);
-    http.addHeader("Content-Type", "application/json");
+// ---------------- BATCH HELPERS ----------------
+void flushBatch(bool force) {
+  if (bufferCount == 0) return;
 
-    StaticJsonDocument<256> doc;
-    doc["device_id"] = deviceID;
-    doc["vrms"] = vrms;
-    doc["irms"] = irms;
-    doc["apparent_power"] = power;
-    doc["wh"] = wh;
+  unsigned long now = millis();
+  bool ageExceeded = (now - lastBatchFlush) >= maxBatchAgeMs;
+  bool fullEnough = bufferCount >= batchTarget;
+  if (!force && !ageExceeded && !fullEnough) return;
 
-    String payload;
-    serializeJson(doc, payload);
+  if (WiFi.status() != WL_CONNECTED) return;  // Keep buffer for retry when back online
 
-    int code = http.POST(payload);
-    Serial.println(code > 0 ? "API Sent" : "API Error");
+  HTTPClient http;
+  http.setTimeout(5000);
+  http.begin(apiEndpoint);
+  http.addHeader("Content-Type", "application/json");
 
-    http.end();
+  const size_t capacity = JSON_ARRAY_SIZE(batchTarget) + batchTarget * JSON_OBJECT_SIZE(5);
+  DynamicJsonDocument doc(capacity);
+  JsonArray arr = doc.to<JsonArray>();
+
+  for (size_t i = 0; i < bufferCount; i++) {
+    JsonObject obj = arr.createNestedObject();
+    obj["device_id"] = deviceID;
+    obj["vrms"] = dataBuffer[i].vrms;
+    obj["irms"] = dataBuffer[i].irms;
+    obj["apparent_power"] = dataBuffer[i].apparentPower;
+    obj["wh"] = dataBuffer[i].wh;
   }
+
+  String payload;
+  serializeJson(doc, payload);
+
+  int code = http.POST(payload);
+  if (code > 0 && code < 400) {
+    Serial.printf("Batch sent (%d readings), code: %d\n", bufferCount, code);
+    bufferCount = 0;
+    lastBatchFlush = now;
+  } else {
+    Serial.printf("Batch send failed, code: %d\n", code);
+  }
+
+  http.end();
+}
+
+void enqueueReading(float vrms, float irms, float power, float wh) {
+  if (bufferCount >= batchTarget) {
+    flushBatch(true);
+
+    // Keep most recent readings if still full (e.g., WiFi down)
+    if (bufferCount >= batchTarget) {
+      for (size_t i = 1; i < batchTarget; i++) {
+        dataBuffer[i - 1] = dataBuffer[i];
+      }
+      bufferCount = batchTarget - 1;
+    }
+  }
+
+  if (bufferCount < batchTarget) {
+    dataBuffer[bufferCount].vrms = vrms;
+    dataBuffer[bufferCount].irms = irms;
+    dataBuffer[bufferCount].apparentPower = power;
+    dataBuffer[bufferCount].wh = wh;
+    bufferCount++;
+  }
+
+  flushBatch(false);
 }
 
 // ---------------- TIMER EVENT ----------------
@@ -63,7 +123,8 @@ void myTimerEvent() {
   float deltaHours = (now - lastmillis) / 3600000.0;
   lastmillis = now;
 
-  wattHours += emon.apparentPower * deltaHours;
+  float apparentPower = emon.apparentPower;
+  wattHours += apparentPower * deltaHours;
 
   // -------- SERIAL OUTPUT --------
   Serial.print("Vrms: ");
@@ -85,11 +146,11 @@ void myTimerEvent() {
   // -------- BLYNK --------
   Blynk.virtualWrite(V0, emon.Vrms);
   Blynk.virtualWrite(V1, emon.Irms);
-  Blynk.virtualWrite(V2, emon.apparentPower);
+  Blynk.virtualWrite(V2, apparentPower);
   Blynk.virtualWrite(V3, wattHours);
 
-  // -------- API --------
-  sendDataToAPI(emon.Vrms, emon.Irms, emon.apparentPower, wattHours);
+  // -------- BUFFER --------
+  enqueueReading(emon.Vrms, emon.Irms, apparentPower, wattHours);
 }
 
 // ---------------- SETUP ----------------
@@ -108,11 +169,15 @@ void setup() {
   Blynk.begin(auth, ssid, pass);
 
   lastmillis = millis();
-  timer.setInterval(1000L, myTimerEvent);
+  lastBatchFlush = millis();
+  timer.setInterval(sampleIntervalMs, myTimerEvent);
 }
 
 // ---------------- LOOP ----------------
 void loop() {
   Blynk.run();
   timer.run();
+
+  // Flush if WiFi just came back
+  flushBatch(false);
 }
