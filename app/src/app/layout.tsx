@@ -1,14 +1,11 @@
 import type { Metadata } from "next";
-import { Geist, Geist_Mono } from "next/font/google";
+import { Montserrat } from "next/font/google";
+import Sidebar from "@/components/Sidebar/Sidebar";
+import Particles from "@/components/Particles/Particles";
 import "./globals.css";
 
-const geistSans = Geist({
-  variable: "--font-geist-sans",
-  subsets: ["latin"],
-});
-
-const geistMono = Geist_Mono({
-  variable: "--font-geist-mono",
+const montserrat = Montserrat({
+  variable: "--font-montserrat",
   subsets: ["latin"],
 });
 
@@ -24,10 +21,11 @@ export default function RootLayout({
 }>) {
   return (
     <html lang="en">
-      <body
-        className={`${geistSans.variable} ${geistMono.variable} antialiased`}
-      >
-        {children}
+      <body className={`${montserrat.variable} antialiased relative`}>
+        <Particles particleColors={undefined} className={undefined} />
+        <div className="relative z-10">{children}</div>
+
+        <Sidebar />
       </body>
     </html>
   );

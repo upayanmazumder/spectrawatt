@@ -1,21 +1,31 @@
 import Link from "next/link";
+import ActiveDevices from "@/components/ActiveDevices/ActiveDevices";
+import DeviceCard from "@/components/DeviceCard/DeviceCard";
 
 export default function Home() {
-	return (
-		<div className="flex min-h-screen items-center justify-center bg-zinc-50 font-sans dark:bg-black">
-			<main className="flex min-h-screen w-full max-w-3xl flex-col items-center justify-between py-32 px-16 bg-white dark:bg-black sm:items-start">
-				<Link
-					href="/live"
-					className="mb-12 rounded-xl border border-zinc-200 bg-white/80 px-6 py-4 text-zinc-900 shadow-lg backdrop-blur-sm hover:bg-white/90 dark:border-zinc-800 dark:bg-zinc-900/70 dark:text-zinc-50 hover:dark:bg-zinc-900/80"
-				>
-					<h2 className="text-2xl font-semibold">
-						Go to Live Energy Stream &rarr;
-					</h2>
-					<p className="mt-2 text-zinc-600 dark:text-zinc-400">
-						View real-time energy data pulled directly from the SpectraWatt API.
-					</p>
-				</Link>
-			</main>
-		</div>
-	);
+  return (
+    <div className="min-h-screen font-sans">
+      {/* Dashboard Title */}
+      <header className="px-10 pt-8">
+        <h1 className="text-3xl font-semibold text-zinc-900 dark:text-white">
+          Dashboard
+        </h1>
+      </header>
+
+      {/* Main Dashboard Layout */}
+      <div className="flex px-10 py-6 gap-8">
+        {/* LEFT: Main content */}
+        <main className="flex-1 flex flex-col gap-6">
+          {/* Active devices header */}
+          <ActiveDevices />
+
+          {/* Device cards section */}
+          <div className="flex gap-6 flex-wrap">
+            <DeviceCard status="online" />
+            <DeviceCard status="offline" />
+          </div>
+        </main>
+      </div>
+    </div>
+  );
 }
