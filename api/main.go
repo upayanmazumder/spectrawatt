@@ -24,7 +24,7 @@ import (
 )
 
 const maxPayloadBytes int64 = 1 << 20
-const maxBatchItems = 500
+const maxBatchItems = 1000 // allow larger batches from buffered devices
 
 // EnergyData represents the energy monitoring data from ESP32
 type EnergyData struct {

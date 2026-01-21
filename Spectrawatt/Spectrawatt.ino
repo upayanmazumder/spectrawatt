@@ -5,6 +5,7 @@
 #include "EmonLib.h"
 #include <WiFi.h>
 #include <WiFiClient.h>
+#include <WiFiClientSecure.h>
 #include <BlynkSimpleEsp32.h>
 #include <HTTPClient.h>
 #include <ArduinoJson.h>
@@ -27,10 +28,12 @@ char pass[] = "damnbrodamn";
 const char* apiEndpoint = "https://api.spectrawatt.upayan.dev/api/data";
 const char* deviceID = "Sonnet";
 
+WiFiClientSecure apiClient; // reused TLS client for batch posts
+
 // ---------------- BATCHING ----------------
 const size_t batchTarget = 20;              // target readings before flush
-const unsigned long sampleIntervalMs = 333; // ~3 readings/sec
-const unsigned long maxBatchAgeMs = 5000;   // flush even if not full after this
+const unsigned long sampleIntervalMs = 500; // ~2 readings/sec
+const unsigned long maxBatchAgeMs = 12000;  // flush even if not full after this (~2s * 20)
 
 struct DataPoint {
   float vrms;
@@ -59,8 +62,13 @@ void flushBatch(bool force) {
   if (WiFi.status() != WL_CONNECTED) return;  // Keep buffer for retry when back online
 
   HTTPClient http;
-  http.setTimeout(5000);
-  http.begin(apiEndpoint);
+  http.setTimeout(7000); // allow more time to connect/post
+
+  // Use secure client for HTTPS endpoint; trust on first use via setInsecure.
+  if (!apiClient.connected()) {
+    apiClient.setInsecure(); // disable cert validation; replace with cert pin if available
+  }
+  http.begin(apiClient, apiEndpoint);
   http.addHeader("Content-Type", "application/json");
 
   const size_t capacity = JSON_ARRAY_SIZE(batchTarget) + batchTarget * JSON_OBJECT_SIZE(5);
@@ -85,7 +93,7 @@ void flushBatch(bool force) {
     bufferCount = 0;
     lastBatchFlush = now;
   } else {
-    Serial.printf("Batch send failed, code: %d\n", code);
+    Serial.printf("Batch send failed, code: %d, error: %s\n", code, http.errorToString(code).c_str());
   }
 
   http.end();
