@@ -85,5 +85,5 @@ def run_clustering_pipeline(input_file: str, threshold: float = 50.0) -> None:
 
 if __name__ == "__main__":
     # Example usage
-    input_file = "data/raw_readings.json"  # Update this to your data file
+    input_file = "data/spectrawatt.energy_data.csv"  # Update this to your data file
     run_clustering_pipeline(input_file, threshold=50.0)
