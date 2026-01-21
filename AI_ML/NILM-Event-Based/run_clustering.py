@@ -2,6 +2,7 @@ import json
 import yaml
 from pathlib import Path
 from typing import List, Dict, Any
+import argparse
 
 # Import our modules
 from src.data_loader import load_power_data
@@ -88,10 +89,17 @@ def run_clustering_pipeline(input_file: str,
 
 if __name__ == "__main__":
     # Example usage
-    input_file = "data/spectrawatt.energy_data.csv"  # Update this to your data file
+    parser = argparse.ArgumentParser(description='Run NILM clustering pipeline')
+    parser.add_argument('--input', default='data/spectrawatt.energy_data.csv', help='Input data file')
+    parser.add_argument('--threshold', type=float, default=30.0, help='Minimum power change to consider as event')
+    parser.add_argument('--eps', type=float, default=30.0, help='DBSCAN eps parameter')
+    parser.add_argument('--min-samples', type=int, default=3, help='DBSCAN min_samples parameter')
+    
+    args = parser.parse_args()
+    
     run_clustering_pipeline(
-        input_file,
-        threshold=30.0,  # Adjust based on your data
-        eps=30.0,        # Adjust based on your data
-        min_samples=3     # Adjust based on your data
+        input_file=args.input,
+        threshold=args.threshold,
+        eps=args.eps,
+        min_samples=args.min_samples
     )

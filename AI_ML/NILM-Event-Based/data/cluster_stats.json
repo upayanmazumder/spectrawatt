@@ -1,14 +1,44 @@
 {
   "0": {
-    "count": 78,
-    "avg_power_change": 132.9282453333289,
-    "min_power_change": 51.29589999999999,
-    "max_power_change": 338.473608
+    "count": 9,
+    "avg_power_change": 197.1573444444192,
+    "min_power_change": 179.91909999999996,
+    "max_power_change": 211.65039999999996
   },
   "-1": {
-    "count": 10,
-    "avg_power_change": 689.8850465999999,
-    "min_power_change": 384.9266,
+    "count": 9,
+    "avg_power_change": 687.7483628888889,
+    "min_power_change": 258.61929999999995,
     "max_power_change": 1140.174227
+  },
+  "1": {
+    "count": 81,
+    "avg_power_change": 82.8947964567887,
+    "min_power_change": 20.886000000000195,
+    "max_power_change": 157.64470000000003
+  },
+  "2": {
+    "count": 3,
+    "avg_power_change": 289.93963333333335,
+    "min_power_change": 285.12340000000006,
+    "max_power_change": 297.53240000000005
+  },
+  "3": {
+    "count": 3,
+    "avg_power_change": 236.11366666666672,
+    "min_power_change": 227.46450000000002,
+    "max_power_change": 243.2508
+  },
+  "4": {
+    "count": 2,
+    "avg_power_change": 483.86725,
+    "min_power_change": 478.62500000000006,
+    "max_power_change": 489.1095
+  },
+  "5": {
+    "count": 2,
+    "avg_power_change": 333.59175400000004,
+    "min_power_change": 328.7099,
+    "max_power_change": 338.473608
   }
 }
