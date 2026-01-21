@@ -70,7 +70,7 @@ export default function DeviceCard({
 				/>
 			</svg>
 			<div className="absolute inset-0 h-full w-full">
-				<div className="absolute right-[6%] top-[4%] flex h-[26%] min-h-[45px] w-1/4 min-w-[72px] items-center justify-center rounded-full bg-white text-[12px] font-semibold uppercase tracking-[0.08em] text-gray-800">
+				<div className="absolute right-[3%] top-[0%] flex h-[26%] min-h-[45px] w-1/4 min-w-[72px] items-center justify-center rounded-full bg-white text-[12px] font-semibold uppercase tracking-[0.08em] text-gray-800">
 					{isOnline ? "Online" : "Offline"}
 				</div>
 
