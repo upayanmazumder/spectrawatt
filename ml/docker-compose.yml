@@ -1,0 +1,177 @@
+version: '3.8'
+
+services:
+  # ========================================================
+  # Development Profile: Interactive Training
+  # ========================================================
+  energy-train:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: development
+    container_name: energy-train
+    image: energy-fingerprinting:dev
+    profiles: ["train", "dev"]
+    
+    command: python src/train.py
+    
+    volumes:
+      - ./data:/app/data
+      - ./models:/app/models
+      - ./src:/app/src
+    
+    environment:
+      - PYTHONUNBUFFERED=1
+      - MODE=development
+    
+    tty: true
+    stdin_open: true
+    networks:
+      - energy-net
+  
+  # ========================================================
+  # API Profile: REST API Server
+  # ========================================================
+  energy-api:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: energy-api
+    image: energy-fingerprinting:latest
+    profiles: ["api"]
+    
+    command: python -m uvicorn src.predict_api:app --host 0.0.0.0 --port 8000
+    
+    ports:
+      - "8000:8000"
+    
+    volumes:
+      - ./models:/app/models
+    
+    environment:
+      - PYTHONUNBUFFERED=1
+      - PYTHONPATH=/app
+      - API_HOST=0.0.0.0
+      - API_PORT=8000
+    
+    depends_on:
+      - redis
+    
+    networks:
+      - energy-net
+    
+    healthcheck:
+      test: ["CMD", "python", "-c", "import requests; requests.get('http://localhost:8000/health', timeout=5)"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 10s
+    
+    restart: unless-stopped
+  
+  # ========================================================
+  # Live Profile: Real-time Monitoring
+  # ========================================================
+  energy-live:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: energy-live
+    image: energy-fingerprinting:latest
+    profiles: ["live"]
+    
+    command: python src/predict_live.py
+    
+    volumes:
+      - ./models:/app/models
+    
+    environment:
+      - PYTHONUNBUFFERED=1
+      - PYTHONPATH=/app
+    
+    networks:
+      - energy-net
+    
+    restart: unless-stopped
+  
+  # ========================================================
+  # Current Profile: Single Prediction
+  # ========================================================
+  energy-current:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: energy-current
+    image: energy-fingerprinting:latest
+    profiles: ["current"]
+    
+    command: python src/current_device.py
+    
+    volumes:
+      - ./models:/app/models
+    
+    environment:
+      - PYTHONUNBUFFERED=1
+      - PYTHONPATH=/app
+    
+    networks:
+      - energy-net
+  
+  # ========================================================
+  # Redis: Cache for API (optional)
+  # ========================================================
+  redis:
+    image: redis:7-alpine
+    container_name: energy-redis
+    profiles: ["api", "prod"]
+    
+    ports:
+      - "6379:6379"
+    
+    volumes:
+      - redis-data:/data
+    
+    networks:
+      - energy-net
+    
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+    
+    restart: unless-stopped
+
+# ========================================================
+# Networks
+# ========================================================
+networks:
+  energy-net:
+    driver: bridge
+
+# ========================================================
+# Volumes
+# ========================================================
+volumes:
+  redis-data:
+    driver: local
+
+# ========================================================
+# Deploy Configuration (for Swarm/Cloud)
+# ========================================================
+x-deploy-resources: &deploy-resources
+  resources:
+    limits:
+      cpus: '2'
+      memory: 2G
+    reservations:
+      cpus: '1'
+      memory: 1G
+
+deploy:
+  api:
+    <<: *deploy-resources
+    placement:
+      constraints:
+        - node.role == worker
+

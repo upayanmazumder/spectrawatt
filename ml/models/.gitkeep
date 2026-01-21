@@ -1,0 +1,7 @@
+# Keep this directory in git
+# Add trained model files here:
+# - energy_model.pt (PyTorch model weights)
+# - scaler.pkl (StandardScaler)
+# - label_encoder.pkl (LabelEncoder)
+# - irms_weight.pkl (Custom IRMS weight)
+
