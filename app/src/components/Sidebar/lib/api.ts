@@ -15,6 +15,16 @@ export interface DeviceDataGroup {
 	data: EnergyData[];
 }
 
+export interface DeviceGroupSummary {
+	device_id: string;
+	record_count: number;
+	latest_reading?: EnergyData;
+	first_reading?: EnergyData;
+	average_power?: number;
+	max_power?: number;
+	total_wh?: number;
+}
+
 // Shared axios instance pointing to the public API host (used in dev and prod).
 export const apiClient = axios.create({
 	baseURL: "https://api.spectrawatt.upayan.dev",
@@ -55,4 +65,10 @@ export async function fetchAllEnergyData(): Promise<EnergyData[]> {
 		"/api/data",
 	);
 	return normalizeEnergyList(response.data);
+}
+
+export async function fetchDeviceGroups(): Promise<DeviceGroupSummary[]> {
+	const response =
+		await apiClient.get<DeviceGroupSummary[]>("/api/data/grouped");
+	return response.data ?? [];
 }

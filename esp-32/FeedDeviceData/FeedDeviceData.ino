@@ -26,14 +26,15 @@ char pass[] = "damnbrodamn";
 
 // ---------------- API ----------------
 const char* apiEndpoint = "https://api.spectrawatt.upayan.dev/api/data";
-const char* deviceID = "Sonnet";
+const char* deviceID = "Bulb-60w";
 
 WiFiClientSecure apiClient; // reused TLS client for batch posts
 
 // ---------------- BATCHING ----------------
 const size_t batchTarget = 20;              // target readings before flush
 const unsigned long sampleIntervalMs = 500; // ~2 readings/sec
-const unsigned long maxBatchAgeMs = 12000;  // flush even if not full after this (~2s * 20)
+// calcVI blocks ~2s per run; set age high enough to gather ~20 samples (~40s)
+const unsigned long maxBatchAgeMs = 60000;  // flush even if not full after this
 
 struct DataPoint {
   float vrms;
