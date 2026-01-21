@@ -1,4 +1,4 @@
-import React, { CSSProperties } from "react";
+import React from "react";
 import { Icon } from "@iconify/react";
 
 type DeviceCardProps = {
@@ -56,48 +56,50 @@ export default function DeviceCard({
 	const isOnline = status === "online";
 	const deviceIcon = getDeviceIcon(deviceId);
 
-	const getCardBackgroundColor = () => {
-		return isOnline ? "#70C1FF" : "#434343";
-	};
-
 	return (
-		<div style={styles.wrapper}>
+		<div className="relative w-full max-w-[339px] aspect-[339/216] drop-shadow-md">
 			<svg
-				style={styles.cardSvg}
+				className="absolute h-full w-full"
 				viewBox="0 0 339 216"
 				fill="none"
 				xmlns="http://www.w3.org/2000/svg"
 			>
 				<path
 					d="M199.289 0C217.631 0 232.5 14.8689 232.5 33.2107C232.5 51.5525 247.369 66.4215 265.711 66.4215H299C321.091 66.4215 339 84.3301 339 106.421V176C339 198.091 321.091 216 299 216H40C17.9086 216 1.54234e-06 198.091 3.44491e-06 176L1.51576e-05 40C1.70602e-05 17.9086 17.9086 0 40 0H199.289Z"
-					fill={getCardBackgroundColor()}
+					fill={isOnline ? "#70C1FF" : "#434343"}
 				/>
 			</svg>
-			<div style={styles.cardContent}>
-				<div style={styles.topPill}>{isOnline ? "Online" : "Offline"}</div>
+			<div className="absolute inset-0 h-full w-full">
+				<div className="absolute right-[6%] top-[4%] flex h-[26%] min-h-[45px] w-1/4 min-w-[72px] items-center justify-center rounded-full bg-white text-[12px] font-semibold uppercase tracking-[0.08em] text-gray-800">
+					{isOnline ? "Online" : "Offline"}
+				</div>
 
-				<div style={styles.iconWrapper}>
+				<div className="absolute left-[4.28%] top-[4.44%] flex h-7 w-7 items-center justify-center rounded-full bg-white">
 					<Icon
 						icon={deviceIcon}
-						style={styles.icon}
+						className="h-[18px] w-[18px] text-gray-800"
 						aria-label={`${deviceId} icon`}
 					/>
 				</div>
 
-				<div style={styles.deviceFrame}>
-					<span style={styles.deviceText}>{deviceId || "Device"}</span>
+				<div className="absolute left-[21px] top-[50px] flex h-[50px] w-[150px] items-center justify-start">
+					<span className="text-[22px] font-semibold text-white">
+						{deviceId || "Device"}
+					</span>
 				</div>
 
-				<div style={styles.powerReadout}>{formatNumber(averagePower, 1)} W</div>
+				<div className="absolute left-[21px] top-[95px] text-[26px] font-light text-white">
+					{formatNumber(averagePower, 1)} W
+				</div>
 
-				<div style={styles.infoBar1}>
-					<span style={styles.infoText}>
+				<div className="absolute left-[26px] top-[146px] flex h-[21px] w-[180px] items-center rounded-full bg-black">
+					<span className="ml-[10px] whitespace-nowrap text-[10px] font-medium text-white">
 						Last active: {formatRelativeTime(lastActive)}
 					</span>
 				</div>
 
-				<div style={styles.infoBar2}>
-					<span style={styles.infoText}>
+				<div className="absolute left-[26px] top-[173px] flex h-[21px] w-[180px] items-center rounded-full bg-black">
+					<span className="ml-[10px] whitespace-nowrap text-[10px] font-medium text-white">
 						Today: {formatNumber(totalWh ?? wh, 2)} Wh
 					</span>
 				</div>
@@ -105,116 +107,3 @@ export default function DeviceCard({
 		</div>
 	);
 }
-
-const styles: { [key: string]: CSSProperties } = {
-	wrapper: {
-		position: "relative",
-		width: "100%",
-		maxWidth: 339,
-		aspectRatio: "339 / 216",
-		filter: "drop-shadow(0px 4px 4px rgba(0,0,0,0.25))",
-	} as CSSProperties,
-	cardSvg: {
-		position: "absolute",
-		width: "100%",
-		height: "100%",
-	} as CSSProperties,
-	cardContent: {
-		position: "absolute",
-		inset: 0,
-		width: "100%",
-		height: "100%",
-	} as CSSProperties,
-	topPill: {
-		position: "absolute",
-		right: "6%",
-		top: "4%",
-		width: "25%",
-		height: "26%",
-		minWidth: 72,
-		minHeight: 45,
-		background: "#FFFFFF",
-		borderRadius: 30,
-		display: "flex",
-		alignItems: "center",
-		justifyContent: "center",
-		fontFamily: "Montserrat, sans-serif",
-		fontWeight: 600,
-		fontSize: 12,
-		textTransform: "uppercase",
-		letterSpacing: "0.08em",
-		color: "#1f2937",
-	} as CSSProperties,
-	iconWrapper: {
-		position: "absolute",
-		left: "4.28%",
-		top: "4.44%",
-		width: 28,
-		height: 28,
-		background: "#FFFFFF",
-		borderRadius: "50%",
-		display: "flex",
-		alignItems: "center",
-		justifyContent: "center",
-	} as CSSProperties,
-	icon: {
-		width: 18,
-		height: 18,
-		color: "#1f2937",
-	} as CSSProperties,
-	deviceFrame: {
-		position: "absolute",
-		left: 21,
-		top: 50,
-		width: 150,
-		height: 50,
-		display: "flex",
-		justifyContent: "flex-start",
-		alignItems: "center",
-	} as CSSProperties,
-	deviceText: {
-		fontFamily: "Montserrat, sans-serif",
-		fontWeight: 600,
-		fontSize: 22,
-		color: "#FFFFFF",
-	} as CSSProperties,
-	powerReadout: {
-		position: "absolute",
-		left: 21,
-		top: 95,
-		fontFamily: "Montserrat, sans-serif",
-		fontWeight: 300,
-		fontSize: 26,
-		color: "#FFFFFF",
-	} as CSSProperties,
-	infoBar1: {
-		position: "absolute",
-		left: 26,
-		top: 146,
-		width: 180,
-		height: 21,
-		background: "#000000",
-		borderRadius: 20,
-		display: "flex",
-		alignItems: "center",
-	} as CSSProperties,
-	infoBar2: {
-		position: "absolute",
-		left: 26,
-		top: 173,
-		width: 180,
-		height: 21,
-		background: "#000000",
-		borderRadius: 20,
-		display: "flex",
-		alignItems: "center",
-	} as CSSProperties,
-	infoText: {
-		marginLeft: 10,
-		fontFamily: "Montserrat, sans-serif",
-		fontWeight: 500,
-		fontSize: 10,
-		color: "#FFFFFF",
-		whiteSpace: "nowrap",
-	} as CSSProperties,
-};
