@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -23,6 +24,7 @@ import (
 )
 
 const maxPayloadBytes int64 = 1 << 20
+const maxBatchItems = 500
 
 // EnergyData represents the energy monitoring data from ESP32
 type EnergyData struct {
@@ -42,6 +44,13 @@ type energyPayload struct {
 	Irms          json.Number `json:"irms"`
 	ApparentPower json.Number `json:"apparent_power"`
 	Wh            json.Number `json:"wh"`
+}
+
+func decodeJSON(body []byte, target interface{}) error {
+	decoder := json.NewDecoder(bytes.NewReader(body))
+	decoder.DisallowUnknownFields()
+	decoder.UseNumber()
+	return decoder.Decode(target)
 }
 
 func parseRequiredNumber(raw json.Number, field string) (float64, error) {
@@ -77,6 +86,51 @@ func parseTimestamp(ts string) (time.Time, error) {
 	}
 
 	return parsed.UTC(), nil
+}
+
+func buildEnergyData(payload energyPayload) (EnergyData, error) {
+	deviceID := strings.TrimSpace(payload.DeviceID)
+	if deviceID == "" {
+		return EnergyData{}, fmt.Errorf("device_id is required")
+	}
+
+	vrms, err := parseRequiredNumber(payload.Vrms, "vrms")
+	if err != nil {
+		return EnergyData{}, err
+	}
+
+	irms, err := parseRequiredNumber(payload.Irms, "irms")
+	if err != nil {
+		return EnergyData{}, err
+	}
+
+	apparentPower, err := parseOptionalNumber(payload.ApparentPower, "apparent_power")
+	if err != nil {
+		return EnergyData{}, err
+	}
+
+	wh, err := parseOptionalNumber(payload.Wh, "wh")
+	if err != nil {
+		return EnergyData{}, err
+	}
+
+	if apparentPower == 0 {
+		apparentPower = vrms * irms
+	}
+
+	timestamp, err := parseTimestamp(payload.Timestamp)
+	if err != nil {
+		return EnergyData{}, err
+	}
+
+	return EnergyData{
+		DeviceID:      deviceID,
+		Timestamp:     timestamp,
+		Vrms:          vrms,
+		Irms:          irms,
+		ApparentPower: apparentPower,
+		Wh:            wh,
+	}, nil
 }
 
 // MongoDB client and collection
@@ -188,17 +242,109 @@ func PostDataHandler(w http.ResponseWriter, r *http.Request) {
 	}
 
 	r.Body = http.MaxBytesReader(w, r.Body, maxPayloadBytes)
-	decoder := json.NewDecoder(r.Body)
-	decoder.DisallowUnknownFields()
-	decoder.UseNumber()
+	body, err := io.ReadAll(r.Body)
+	if err != nil {
+		http.Error(w, "Unable to read body", http.StatusBadRequest)
+		return
+	}
+
+	body = bytes.TrimSpace(body)
+	if len(body) == 0 {
+		http.Error(w, "Request body is empty", http.StatusBadRequest)
+		return
+	}
+
+	// Decide whether we received a single payload or a batch
+	if body[0] == '[' {
+		var payloads []energyPayload
+		if err := decodeJSON(body, &payloads); err != nil {
+			var syntaxErr *json.SyntaxError
+			var unmarshalTypeErr *json.UnmarshalTypeError
+			var maxBytesErr *http.MaxBytesError
+
+			switch {
+			case errors.As(err, &maxBytesErr):
+				http.Error(w, "Payload too large", http.StatusRequestEntityTooLarge)
+			case errors.Is(err, io.EOF):
+				http.Error(w, "Request body is empty", http.StatusBadRequest)
+			case errors.As(err, &syntaxErr):
+				http.Error(w, "Malformed JSON", http.StatusBadRequest)
+			case errors.As(err, &unmarshalTypeErr):
+				http.Error(w, fmt.Sprintf("Invalid type for %s", unmarshalTypeErr.Field), http.StatusBadRequest)
+			default:
+				http.Error(w, "Invalid JSON", http.StatusBadRequest)
+			}
+			return
+		}
+
+		if len(payloads) == 0 {
+			http.Error(w, "Batch is empty", http.StatusBadRequest)
+			return
+		}
+
+		if len(payloads) > maxBatchItems {
+			http.Error(w, fmt.Sprintf("Batch too large (max %d)", maxBatchItems), http.StatusBadRequest)
+			return
+		}
+
+		dataList := make([]EnergyData, 0, len(payloads))
+		deviceIDs := make(map[string]struct{})
+		for idx, payload := range payloads {
+			data, err := buildEnergyData(payload)
+			if err != nil {
+				http.Error(w, fmt.Sprintf("item %d: %v", idx, err), http.StatusBadRequest)
+				return
+			}
+			dataList = append(dataList, data)
+			deviceIDs[data.DeviceID] = struct{}{}
+		}
+
+		docs := make([]interface{}, len(dataList))
+		for i := range dataList {
+			docs[i] = dataList[i]
+		}
+
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+
+		result, err := energyCollection.InsertMany(ctx, docs)
+		if err != nil {
+			log.Printf("Error inserting batch: %v", err)
+			http.Error(w, "Database error", http.StatusInternalServerError)
+			return
+		}
+
+		for i, id := range result.InsertedIDs {
+			dataList[i].ID = id.(primitive.ObjectID)
+		}
+
+		deviceList := make([]string, 0, len(deviceIDs))
+		for k := range deviceIDs {
+			deviceList = append(deviceList, k)
+		}
+		sort.Strings(deviceList)
+
+		log.Printf("Received batch of %d records from devices: %s", len(dataList), strings.Join(deviceList, ","))
+
+		response := map[string]interface{}{
+			"status":         "success",
+			"message":        fmt.Sprintf("Stored %d records", len(dataList)),
+			"inserted_count": len(dataList),
+			"devices":        deviceList,
+			"data":           dataList,
+		}
+		json.NewEncoder(w).Encode(response)
+		return
+	}
 
 	var payload energyPayload
-	if err := decoder.Decode(&payload); err != nil {
+	if err := decodeJSON(body, &payload); err != nil {
 		var syntaxErr *json.SyntaxError
 		var unmarshalTypeErr *json.UnmarshalTypeError
+		var maxBytesErr *http.MaxBytesError
 
 		switch {
-		case errors.Is(err, http.ErrBodyTooLarge):
+		case errors.As(err, &maxBytesErr):
 			http.Error(w, "Payload too large", http.StatusRequestEntityTooLarge)
 		case errors.Is(err, io.EOF):
 			http.Error(w, "Request body is empty", http.StatusBadRequest)
@@ -212,53 +358,10 @@ func PostDataHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	deviceID := strings.TrimSpace(payload.DeviceID)
-	if deviceID == "" {
-		http.Error(w, "device_id is required", http.StatusBadRequest)
-		return
-	}
-
-	vrms, err := parseRequiredNumber(payload.Vrms, "vrms")
+	data, err := buildEnergyData(payload)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
-	}
-
-	irms, err := parseRequiredNumber(payload.Irms, "irms")
-	if err != nil {
-		http.Error(w, err.Error(), http.StatusBadRequest)
-		return
-	}
-
-	apparentPower, err := parseOptionalNumber(payload.ApparentPower, "apparent_power")
-	if err != nil {
-		http.Error(w, err.Error(), http.StatusBadRequest)
-		return
-	}
-
-	wh, err := parseOptionalNumber(payload.Wh, "wh")
-	if err != nil {
-		http.Error(w, err.Error(), http.StatusBadRequest)
-		return
-	}
-
-	if apparentPower == 0 {
-		apparentPower = vrms * irms
-	}
-
-	timestamp, err := parseTimestamp(payload.Timestamp)
-	if err != nil {
-		http.Error(w, err.Error(), http.StatusBadRequest)
-		return
-	}
-
-	data := EnergyData{
-		DeviceID:      deviceID,
-		Timestamp:     timestamp,
-		Vrms:          vrms,
-		Irms:          irms,
-		ApparentPower: apparentPower,
-		Wh:            wh,
 	}
 
 	// Store data in MongoDB
