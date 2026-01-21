@@ -2,8 +2,6 @@ package main
 
 import (
 	"context"
-	"crypto/tls"
-	"crypto/x509"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -17,7 +15,6 @@ import (
 	"strings"
 	"time"
 
-	mqtt "github.com/eclipse/paho.mqtt.golang"
 	"github.com/gorilla/mux"
 	"go.mongodb.org/mongo-driver/bson"
 	"go.mongodb.org/mongo-driver/bson/primitive"
@@ -25,11 +22,7 @@ import (
 	"go.mongodb.org/mongo-driver/mongo/options"
 )
 
-const (
-	maxPayloadBytes     int64 = 1 << 20
-	defaultVrmsFallback       = 230.0
-	defaultMQTTTopic          = "spectrawatt/+/energy"
-)
+const maxPayloadBytes int64 = 1 << 20
 
 // EnergyData represents the energy monitoring data from ESP32
 type EnergyData struct {
@@ -73,13 +66,6 @@ func parseOptionalNumber(raw json.Number, field string) (float64, error) {
 	return parseRequiredNumber(raw, field)
 }
 
-func parseNumberWithDefault(raw json.Number, field string, fallback float64) (float64, error) {
-	if raw == "" {
-		return fallback, nil
-	}
-	return parseRequiredNumber(raw, field)
-}
-
 func parseTimestamp(ts string) (time.Time, error) {
 	if strings.TrimSpace(ts) == "" {
 		return time.Now().UTC(), nil
@@ -97,135 +83,7 @@ func parseTimestamp(ts string) (time.Time, error) {
 var (
 	mongoClient      *mongo.Client
 	energyCollection *mongo.Collection
-
-	mqttClient  mqtt.Client
-	defaultVrms float64 = defaultVrmsFallback
 )
-
-type mqttConfig struct {
-	brokerURL     string
-	topic         string
-	clientID      string
-	username      string
-	password      string
-	caCertPath    string
-	skipTLSVerify bool
-}
-
-func loadDefaultVrms() float64 {
-	raw := strings.TrimSpace(os.Getenv("DEFAULT_VRMS"))
-	if raw == "" {
-		return defaultVrmsFallback
-	}
-
-	val, err := strconv.ParseFloat(raw, 64)
-	if err != nil || math.IsNaN(val) || math.IsInf(val, 0) {
-		log.Printf("Invalid DEFAULT_VRMS=%q, using fallback %.2fV", raw, defaultVrmsFallback)
-		return defaultVrmsFallback
-	}
-	return val
-}
-
-func loadMQTTConfig() mqttConfig {
-	broker := strings.TrimSpace(os.Getenv("MQTT_BROKER_URL"))
-	if broker == "" {
-		broker = "tcp://localhost:1883"
-	}
-
-	topic := strings.TrimSpace(os.Getenv("MQTT_TOPIC"))
-	if topic == "" {
-		topic = defaultMQTTTopic
-	}
-
-	clientID := strings.TrimSpace(os.Getenv("MQTT_CLIENT_ID"))
-	if clientID == "" {
-		clientID = fmt.Sprintf("spectrawatt-api-%d", time.Now().UnixNano())
-	}
-
-	return mqttConfig{
-		brokerURL:     broker,
-		topic:         topic,
-		clientID:      clientID,
-		username:      strings.TrimSpace(os.Getenv("MQTT_USERNAME")),
-		password:      strings.TrimSpace(os.Getenv("MQTT_PASSWORD")),
-		caCertPath:    strings.TrimSpace(os.Getenv("MQTT_CA_CERT_PATH")),
-		skipTLSVerify: strings.EqualFold(strings.TrimSpace(os.Getenv("MQTT_TLS_INSECURE")), "true"),
-	}
-}
-
-func buildTLSConfig(cfg mqttConfig) (*tls.Config, error) {
-	tlsCfg := &tls.Config{
-		MinVersion:         tls.VersionTLS12,
-		InsecureSkipVerify: cfg.skipTLSVerify,
-	}
-
-	if cfg.caCertPath == "" {
-		return tlsCfg, nil
-	}
-
-	pemData, err := os.ReadFile(cfg.caCertPath)
-	if err != nil {
-		return nil, fmt.Errorf("read CA cert: %w", err)
-	}
-
-	pool := x509.NewCertPool()
-	if !pool.AppendCertsFromPEM(pemData) {
-		return nil, fmt.Errorf("invalid CA certificate at %s", cfg.caCertPath)
-	}
-
-	tlsCfg.RootCAs = pool
-	return tlsCfg, nil
-}
-
-func startMQTTConsumer(cfg mqttConfig) error {
-	opts := mqtt.NewClientOptions()
-	opts.AddBroker(cfg.brokerURL)
-	opts.SetClientID(cfg.clientID)
-	opts.SetKeepAlive(60 * time.Second)
-	opts.SetPingTimeout(30 * time.Second)
-	opts.SetAutoReconnect(true)
-	opts.SetConnectRetry(true)
-	opts.SetConnectRetryInterval(5 * time.Second)
-	opts.SetOrderMatters(false) // allow concurrent handlers
-
-	if cfg.username != "" {
-		opts.SetUsername(cfg.username)
-		opts.SetPassword(cfg.password)
-	}
-
-	if strings.HasPrefix(cfg.brokerURL, "ssl://") || strings.HasPrefix(cfg.brokerURL, "tls://") || strings.HasPrefix(cfg.brokerURL, "mqtts://") {
-		tlsCfg, err := buildTLSConfig(cfg)
-		if err != nil {
-			return fmt.Errorf("mqtt TLS config: %w", err)
-		}
-		opts.SetTLSConfig(tlsCfg)
-	}
-
-	opts.OnConnect = func(c mqtt.Client) {
-		log.Printf("Connected to MQTT broker %s (client_id=%s)", cfg.brokerURL, cfg.clientID)
-		token := c.Subscribe(cfg.topic, 1, handleMQTTMessage)
-		if token.Wait() && token.Error() != nil {
-			log.Printf("MQTT subscribe error: %v", token.Error())
-		} else {
-			log.Printf("Subscribed to MQTT topic: %s", cfg.topic)
-		}
-	}
-
-	opts.OnConnectionLost = func(_ mqtt.Client, err error) {
-		log.Printf("MQTT connection lost: %v", err)
-	}
-
-	mqttClient = mqtt.NewClient(opts)
-	token := mqttClient.Connect()
-	if !token.WaitTimeout(10 * time.Second) {
-		return fmt.Errorf("mqtt connect timeout")
-	}
-	if err := token.Error(); err != nil {
-		return fmt.Errorf("mqtt connect: %w", err)
-	}
-
-	return nil
-}
 
 // initMongoDB initializes MongoDB connection
 func initMongoDB() error {
@@ -289,89 +147,6 @@ func initMongoDB() error {
 	return nil
 }
 
-func extractDeviceIDFromTopic(topic string) string {
-	parts := strings.Split(topic, "/")
-	if len(parts) >= 2 {
-		return strings.TrimSpace(parts[1])
-	}
-	return ""
-}
-
-func buildEnergyData(payload energyPayload) (EnergyData, error) {
-	deviceID := strings.TrimSpace(payload.DeviceID)
-	if deviceID == "" {
-		return EnergyData{}, errors.New("device_id is required")
-	}
-
-	vrms, err := parseNumberWithDefault(payload.Vrms, "vrms", defaultVrms)
-	if err != nil {
-		return EnergyData{}, err
-	}
-
-	irms, err := parseRequiredNumber(payload.Irms, "irms")
-	if err != nil {
-		return EnergyData{}, err
-	}
-
-	apparentPower, err := parseOptionalNumber(payload.ApparentPower, "apparent_power")
-	if err != nil {
-		return EnergyData{}, err
-	}
-
-	wh, err := parseOptionalNumber(payload.Wh, "wh")
-	if err != nil {
-		return EnergyData{}, err
-	}
-
-	if apparentPower == 0 {
-		apparentPower = vrms * irms
-	}
-
-	timestamp, err := parseTimestamp(payload.Timestamp)
-	if err != nil {
-		return EnergyData{}, err
-	}
-
-	return EnergyData{
-		DeviceID:      deviceID,
-		Timestamp:     timestamp,
-		Vrms:          vrms,
-		Irms:          irms,
-		ApparentPower: apparentPower,
-		Wh:            wh,
-	}, nil
-}
-
-func handleMQTTMessage(_ mqtt.Client, msg mqtt.Message) {
-	var payload energyPayload
-	if err := json.Unmarshal(msg.Payload(), &payload); err != nil {
-		log.Printf("MQTT: invalid JSON on %s: %v", msg.Topic(), err)
-		return
-	}
-
-	if strings.TrimSpace(payload.DeviceID) == "" {
-		payload.DeviceID = extractDeviceIDFromTopic(msg.Topic())
-	}
-
-	data, err := buildEnergyData(payload)
-	if err != nil {
-		log.Printf("MQTT: validation error on %s: %v", msg.Topic(), err)
-		return
-	}
-
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-	defer cancel()
-
-	result, err := energyCollection.InsertOne(ctx, data)
-	if err != nil {
-		log.Printf("MQTT: insert error for %s: %v", data.DeviceID, err)
-		return
-	}
-
-	data.ID = result.InsertedID.(primitive.ObjectID)
-	log.Printf("MQTT: stored reading from %s -> Vrms=%.2f Irms=%.4f Power=%.2f Wh=%.2f", data.DeviceID, data.Vrms, data.Irms, data.ApparentPower, data.Wh)
-}
-
 // HealthCheckHandler handles health check requests
 func HealthCheckHandler(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
@@ -421,10 +196,9 @@ func PostDataHandler(w http.ResponseWriter, r *http.Request) {
 	if err := decoder.Decode(&payload); err != nil {
 		var syntaxErr *json.SyntaxError
 		var unmarshalTypeErr *json.UnmarshalTypeError
-		var maxBytesErr *http.MaxBytesError
 
 		switch {
-		case errors.As(err, &maxBytesErr):
+		case errors.Is(err, http.ErrBodyTooLarge):
 			http.Error(w, "Payload too large", http.StatusRequestEntityTooLarge)
 		case errors.Is(err, io.EOF):
 			http.Error(w, "Request body is empty", http.StatusBadRequest)
@@ -438,10 +212,53 @@ func PostDataHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	data, err := buildEnergyData(payload)
+	deviceID := strings.TrimSpace(payload.DeviceID)
+	if deviceID == "" {
+		http.Error(w, "device_id is required", http.StatusBadRequest)
+		return
+	}
+
+	vrms, err := parseRequiredNumber(payload.Vrms, "vrms")
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
+	}
+
+	irms, err := parseRequiredNumber(payload.Irms, "irms")
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+
+	apparentPower, err := parseOptionalNumber(payload.ApparentPower, "apparent_power")
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+
+	wh, err := parseOptionalNumber(payload.Wh, "wh")
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+
+	if apparentPower == 0 {
+		apparentPower = vrms * irms
+	}
+
+	timestamp, err := parseTimestamp(payload.Timestamp)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+
+	data := EnergyData{
+		DeviceID:      deviceID,
+		Timestamp:     timestamp,
+		Vrms:          vrms,
+		Irms:          irms,
+		ApparentPower: apparentPower,
+		Wh:            wh,
 	}
 
 	// Store data in MongoDB
@@ -702,9 +519,6 @@ func LoggingMiddleware(next http.Handler) http.Handler {
 }
 
 func main() {
-	defaultVrms = loadDefaultVrms()
-	log.Printf("Default Vrms set to %.2fV", defaultVrms)
-
 	// Initialize MongoDB
 	if err := initMongoDB(); err != nil {
 		log.Fatalf("Failed to connect to MongoDB: %v", err)
@@ -712,16 +526,6 @@ func main() {
 	defer func() {
 		if err := mongoClient.Disconnect(context.Background()); err != nil {
 			log.Printf("Error disconnecting from MongoDB: %v", err)
-		}
-	}()
-
-	mqttCfg := loadMQTTConfig()
-	if err := startMQTTConsumer(mqttCfg); err != nil {
-		log.Fatalf("Failed to start MQTT consumer: %v", err)
-	}
-	defer func() {
-		if mqttClient != nil && mqttClient.IsConnected() {
-			mqttClient.Disconnect(250)
 		}
 	}()
 
@@ -747,7 +551,6 @@ func main() {
 	port = ":" + port
 
 	log.Printf("Starting Spectrawatt API server on port %s", port)
-	log.Printf("MQTT broker: %s | topic: %s", mqttCfg.brokerURL, mqttCfg.topic)
 	log.Printf("Endpoints:")
 	log.Printf("  POST   /api/data - Submit energy data")
 	log.Printf("  GET    /api/data - Get all energy data (latest 100)")

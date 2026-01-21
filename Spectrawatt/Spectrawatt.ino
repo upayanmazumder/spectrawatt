@@ -1,133 +1,118 @@
+#define BLYNK_PRINT Serial
+#define BLYNK_TEMPLATE_ID "TMPL3HXGLadVP"
+#define BLYNK_TEMPLATE_NAME "ioteehee"
+
 #include "EmonLib.h"
 #include <WiFi.h>
-#include <WiFiClientSecure.h>
-#include <PubSubClient.h>
+#include <WiFiClient.h>
+#include <BlynkSimpleEsp32.h>
+#include <HTTPClient.h>
 #include <ArduinoJson.h>
-#include <cstring>
-
-#define MQTT_USE_TLS 1
 
 // ---------------- OBJECTS ----------------
 EnergyMonitor emon;
-
-// ---------------- WIFI ----------------
-const char ssid[] = "Solace";
-const char pass[] = "damnbrodamn";
-
-// ---------------- MQTT ----------------
-const char mqttHost[] = "mqtt.upayan.dev";
-#if MQTT_USE_TLS
-const uint16_t mqttPort = 8883;
-const char mqttCaCert[] = ""; // Add the CA certificate for mqtt.upayan.dev; falls back to insecure if left empty
-WiFiClientSecure mqttNet;
-#else
-const uint16_t mqttPort = 1883;
-WiFiClient mqttNet;
-#endif
-const char deviceID[] = "Sonnet";
-const float nominalVrms = 230.0;
-
-PubSubClient mqttClient(mqttNet);
-String mqttTopic = String("spectrawatt/") + deviceID + "/energy";
+BlynkTimer timer;
 
 // ---------------- CALIBRATION ----------------
-#define CURRENT_PIN 34
+// 🔥 FIXED: Voltage calibration doubled (120V → 240V issue)
+#define vCalibration 213.6
 #define currCalibration 0.52
 
-// ---------------- TIMING ----------------
-unsigned long lastSend = 0;
-const unsigned long interval = 333; // ~3 Hz
+// ---------------- BLYNK ----------------
+char auth[] = "0cO_QnCFHs10T6hE6pY8VeiXV2a_ikZx";
+char ssid[] = "Solace";
+char pass[] = "damnbrodamn";
 
-bool ensureMqttConnected();
-void publishReading(float irms);
+// ---------------- API ----------------
+const char* apiEndpoint = "https://api.spectrawatt.upayan.dev/api/data";
+const char* deviceID = "Sonnet";
+
+// ---------------- ENERGY ----------------
+float wattHours = 0.0;
+unsigned long lastmillis = 0;
+
+// ---------------- API SEND FUNCTION ----------------
+void sendDataToAPI(float vrms, float irms, float power, float wh) {
+  if (WiFi.status() == WL_CONNECTED) {
+    HTTPClient http;
+    http.begin(apiEndpoint);
+    http.addHeader("Content-Type", "application/json");
+
+    StaticJsonDocument<256> doc;
+    doc["device_id"] = deviceID;
+    doc["vrms"] = vrms;
+    doc["irms"] = irms;
+    doc["apparent_power"] = power;
+    doc["wh"] = wh;
+
+    String payload;
+    serializeJson(doc, payload);
+
+    int code = http.POST(payload);
+    Serial.println(code > 0 ? "API Sent" : "API Error");
+
+    http.end();
+  }
+}
+
+// ---------------- TIMER EVENT ----------------
+void myTimerEvent() {
+  emon.calcVI(20, 2000);   // 20 AC cycles, 2s timeout
+
+  unsigned long now = millis();
+  float deltaHours = (now - lastmillis) / 3600000.0;
+  lastmillis = now;
+
+  wattHours += emon.apparentPower * deltaHours;
+
+  // -------- SERIAL OUTPUT --------
+  Serial.print("Vrms: ");
+  Serial.print(emon.Vrms, 2);
+  Serial.print(" V\t");
+
+  Serial.print("Irms: ");
+  Serial.print(emon.Irms, 4);
+  Serial.print(" A\t");
+
+  Serial.print("Power: ");
+  Serial.print(emon.apparentPower, 2);
+  Serial.print(" W\t");
+
+  Serial.print("Energy: ");
+  Serial.print(wattHours, 6);
+  Serial.println(" Wh");
+
+  // -------- BLYNK --------
+  Blynk.virtualWrite(V0, emon.Vrms);
+  Blynk.virtualWrite(V1, emon.Irms);
+  Blynk.virtualWrite(V2, emon.apparentPower);
+  Blynk.virtualWrite(V3, wattHours);
+
+  // -------- API --------
+  sendDataToAPI(emon.Vrms, emon.Irms, emon.apparentPower, wattHours);
+}
 
 // ---------------- SETUP ----------------
 void setup() {
   Serial.begin(115200);
 
-#if MQTT_USE_TLS
-  if (strlen(mqttCaCert) > 0) {
-    mqttNet.setCACert(mqttCaCert);
-  } else {
-    mqttNet.setInsecure(); // TLS without certificate validation; replace mqttCaCert for full verification
-  }
-#endif
+  // ✅ ESP32 ADC FIX (CRITICAL)
+  analogSetPinAttenuation(34, ADC_11db); // Current
+  analogSetPinAttenuation(35, ADC_11db); // Voltage
 
-  mqttClient.setServer(mqttHost, mqttPort);
-  mqttClient.setBufferSize(256);
+  // Voltage pin = GPIO 35
+  // Current pin = GPIO 34
+  emon.voltage(35, vCalibration, 1.7);
+  emon.current(34, currCalibration);
 
-  analogSetPinAttenuation(CURRENT_PIN, ADC_11db);
-  emon.current(CURRENT_PIN, currCalibration);
+  Blynk.begin(auth, ssid, pass);
 
-  WiFi.begin(ssid, pass);
-  while (WiFi.status() != WL_CONNECTED) {
-    delay(500);
-    Serial.print(".");
-  }
-
-  Serial.println("\nWiFi Connected");
-  Serial.println("irms");
-  Serial.print("MQTT broker: ");
-  Serial.print(mqttHost);
-  Serial.print(":");
-  Serial.println(mqttPort);
+  lastmillis = millis();
+  timer.setInterval(1000L, myTimerEvent);
 }
 
 // ---------------- LOOP ----------------
 void loop() {
-  if (!mqttClient.connected()) {
-    ensureMqttConnected();
-  }
-  mqttClient.loop();
-
-  if (millis() - lastSend >= interval) {
-    lastSend = millis();
-
-    float irms = emon.calcIrms(1480);
-    Serial.println(irms, 4);
-
-    publishReading(irms);
-  }
-}
-
-bool ensureMqttConnected() {
-  if (mqttClient.connected()) {
-    return true;
-  }
-
-  Serial.println("Connecting to MQTT...");
-  while (!mqttClient.connected()) {
-    String clientId = String("spectrawatt-") + deviceID + "-" + String((uint32_t)millis(), HEX);
-
-    if (mqttClient.connect(clientId.c_str())) {
-      Serial.println("MQTT connected");
-      break;
-    }
-
-    Serial.print("MQTT connect failed, rc=");
-    Serial.print(mqttClient.state());
-    Serial.println(". Retrying in 2s");
-    delay(2000);
-  }
-
-  return mqttClient.connected();
-}
-
-void publishReading(float irms) {
-  if (!mqttClient.connected() && !ensureMqttConnected()) {
-    return;
-  }
-
-  float apparentPower = nominalVrms * irms;
-
-  StaticJsonDocument<192> doc;
-  doc["device_id"] = deviceID;
-  doc["irms"] = irms;
-  doc["vrms"] = nominalVrms;
-  doc["apparent_power"] = apparentPower;
-
-  char buffer[192];
-  size_t len = serializeJson(doc, buffer);
-
-  mqttClient.publish(mqttTopic.c_str(), (uint8_t*)buffer, len, false);
+  Blynk.run();
+  timer.run();
 }
