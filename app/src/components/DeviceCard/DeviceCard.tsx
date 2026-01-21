@@ -1,4 +1,5 @@
 import React, { CSSProperties } from "react";
+import { Icon } from "@iconify/react";
 
 type DeviceCardProps = {
 	deviceId: string;
@@ -33,6 +34,17 @@ function formatNumber(value?: number, digits = 2): string {
 	return value.toFixed(digits);
 }
 
+function getDeviceIcon(deviceId: string): string {
+	const name = deviceId.toLowerCase();
+
+	if (name.includes("bulb")) return "mdi:lightbulb-on-outline";
+	if (name.includes("sonnet")) return "mdi:laptop";
+	if (name.includes("pc")) return "mdi:desktop-tower";
+	if (name.includes("solder")) return "mdi:soldering-iron";
+
+	return "mdi:power-plug";
+}
+
 export default function DeviceCard({
 	deviceId,
 	status,
@@ -42,6 +54,7 @@ export default function DeviceCard({
 	totalWh,
 }: DeviceCardProps) {
 	const isOnline = status === "online";
+	const deviceIcon = getDeviceIcon(deviceId);
 
 	const getCardBackgroundColor = () => {
 		return isOnline ? "#70C1FF" : "#434343";
@@ -63,7 +76,13 @@ export default function DeviceCard({
 			<div style={styles.cardContent}>
 				<div style={styles.topPill}>{isOnline ? "Online" : "Offline"}</div>
 
-				<div style={styles.icon} />
+				<div style={styles.iconWrapper}>
+					<Icon
+						icon={deviceIcon}
+						style={styles.icon}
+						aria-label={`${deviceId} icon`}
+					/>
+				</div>
 
 				<div style={styles.deviceFrame}>
 					<span style={styles.deviceText}>{deviceId || "Device"}</span>
@@ -126,14 +145,22 @@ const styles: { [key: string]: CSSProperties } = {
 		letterSpacing: "0.08em",
 		color: "#1f2937",
 	} as CSSProperties,
-	icon: {
+	iconWrapper: {
 		position: "absolute",
 		left: "4.28%",
 		top: "4.44%",
-		width: 24,
-		height: 24,
+		width: 28,
+		height: 28,
 		background: "#FFFFFF",
 		borderRadius: "50%",
+		display: "flex",
+		alignItems: "center",
+		justifyContent: "center",
+	} as CSSProperties,
+	icon: {
+		width: 18,
+		height: 18,
+		color: "#1f2937",
 	} as CSSProperties,
 	deviceFrame: {
 		position: "absolute",

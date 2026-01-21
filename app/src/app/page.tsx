@@ -111,7 +111,7 @@ export default function Home() {
 					</div>
 				:	null}
 
-				<section className="rounded-3xl border border-zinc-200 bg-white/80 p-6 shadow-sm backdrop-blur dark:border-zinc-800 dark:bg-zinc-950/70">
+				<section className="rounded-3xl p-6 shadow-sm">
 					<header className="flex items-center justify-between">
 						<h2 className="text-lg font-semibold text-zinc-900 dark:text-white">
 							Devices
