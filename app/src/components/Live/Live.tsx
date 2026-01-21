@@ -2,7 +2,7 @@
 // cspell:ignore spectrawatt vrms irms
 
 import { useEffect, useMemo, useState } from "react";
-import { fetchAllEnergyData, type EnergyData } from "@/lib/api";
+import { fetchAllEnergyData, type EnergyData } from "@/components/Sidebar/lib/api";
 
 type FetchState = "idle" | "loading" | "success" | "error";
 type SortField =
