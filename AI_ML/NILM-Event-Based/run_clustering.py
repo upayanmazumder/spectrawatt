@@ -10,7 +10,10 @@ from src.event_detector import detect_events
 from src.event_table import create_event_table
 from src.clustering import cluster_events
 
-def run_clustering_pipeline(input_file: str, threshold: float = 50.0) -> None:
+def run_clustering_pipeline(input_file: str, 
+                          threshold: float = 30.0,  
+                          eps: float = 30.0,
+                          min_samples: int = 3) -> None:
     """Run the clustering pipeline end-to-end."""
     # 1. Load and preprocess data
     print("Loading data...")
@@ -30,7 +33,7 @@ def run_clustering_pipeline(input_file: str, threshold: float = 50.0) -> None:
     
     # 5. Cluster events
     print("Clustering events...")
-    labels = cluster_events(event_table)
+    labels = cluster_events(event_table, eps=eps, min_samples=min_samples)
     
     # Add cluster IDs to events
     for event, label in zip(event_table, labels):
@@ -86,4 +89,9 @@ def run_clustering_pipeline(input_file: str, threshold: float = 50.0) -> None:
 if __name__ == "__main__":
     # Example usage
     input_file = "data/spectrawatt.energy_data.csv"  # Update this to your data file
-    run_clustering_pipeline(input_file, threshold=50.0)
+    run_clustering_pipeline(
+        input_file,
+        threshold=30.0,  # Adjust based on your data
+        eps=30.0,        # Adjust based on your data
+        min_samples=3     # Adjust based on your data
+    )

@@ -1,0 +1,14 @@
+{
+  "0": {
+    "count": 78,
+    "avg_power_change": 132.9282453333289,
+    "min_power_change": 51.29589999999999,
+    "max_power_change": 338.473608
+  },
+  "-1": {
+    "count": 10,
+    "avg_power_change": 689.8850465999999,
+    "min_power_change": 384.9266,
+    "max_power_change": 1140.174227
+  }
+}

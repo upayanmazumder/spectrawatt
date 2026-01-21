@@ -2,7 +2,7 @@ from typing import List, Dict, Any
 import numpy as np
 from sklearn.cluster import DBSCAN
 
-def cluster_events(event_table: List[Dict[str, Any]], eps: float = 50.0, min_samples: int = 5) -> List[int]:
+def cluster_events(event_table: List[Dict[str, Any]], eps: float = 30.0, min_samples: int = 3) -> List[int]:
     """
     Cluster events based on their absolute power changes.
     
