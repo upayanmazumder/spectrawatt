@@ -1,11 +1,11 @@
 # ============================================================
-# Stage 1: Builder - Use PyTorch base to avoid re-downloading torch wheels
+# Stage 1: Builder
 # ============================================================
-FROM pytorch/pytorch:2.1.0-cpu AS builder
+FROM python:3.10-slim AS builder
 
 WORKDIR /build
 
-# Install build dependencies (for uvloop/httptools wheels fallback)
+# System deps
 RUN apt-get update && apt-get install -y \
     gcc \
     g++ \
@@ -15,70 +15,68 @@ RUN apt-get update && apt-get install -y \
     libssl-dev \
     && rm -rf /var/lib/apt/lists/*
 
-# Keep pip tooling up-to-date to avoid resolver/build quirks
-RUN python -m pip install --upgrade pip setuptools wheel
+RUN pip install --upgrade pip setuptools wheel
 
-# Install Python dependencies in build location
+# Install torch CPU + deps
 COPY requirements.txt .
-RUN pip install --no-cache-dir --prefix=/install -r requirements.txt
+
+RUN pip install --no-cache-dir --prefix=/install \
+    torch==2.1.0+cpu \
+    torchvision==0.16.0+cpu \
+    torchaudio==2.1.0+cpu \
+    --index-url https://download.pytorch.org/whl/cpu \
+    && pip install --no-cache-dir --prefix=/install -r requirements.txt
+
 
 # ============================================================
-# Stage 2: Production - Reuse PyTorch base runtime
+# Stage 2: Production
 # ============================================================
-FROM pytorch/pytorch:2.1.0-cpu AS production
+FROM python:3.10-slim AS production
 
-# Labels for container metadata
 LABEL maintainer="adityarohilla"
 LABEL description="Energy Fingerprinting ML Model - Device Detection"
 LABEL version="1.0.0"
 
 WORKDIR /app
 
-# Create non-root user for security
-RUN groupadd --gid 1000 appgroup && \
-    useradd --uid 1000 --gid appgroup --shell /bin/bash --create-home appuser
+# Non-root user (security drip)
+RUN groupadd -g 1000 appgroup && \
+    useradd -u 1000 -g appgroup -m appuser
 
-# Copy installed Python packages from builder
+# Copy Python deps
 COPY --from=builder /install /usr/local
 
-# Copy project source code
+# App code
 COPY --chown=appuser:appgroup src/ ./src/
 COPY --chown=appuser:appgroup data/ ./data/
 COPY --chown=appuser:appgroup models/ ./models/
 
-# Switch to non-root user
 USER appuser
 
-# Set environment variables
 ENV PYTHONUNBUFFERED=1 \
     PYTHONDONTWRITEBYTECODE=1 \
     PYTHONPATH=/app \
     MODE=production
 
-# Healthcheck - check if the API responds
-HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \
-    CMD python -c "import requests; requests.get('http://localhost:8000/health', timeout=5)" || exit 1
+HEALTHCHECK --interval=30s --timeout=10s --retries=3 \
+    CMD python -c "import requests; requests.get('http://localhost:8000/health')" || exit 1
 
-# Default command - run live monitoring
 CMD ["python", "src/current_device_live.py"]
 
+
 # ============================================================
-# Stage 3: Development - Full development environment
+# Stage 3: Development
 # ============================================================
 FROM production AS development
 
-# Install development tools
+USER root
+
 RUN apt-get update && apt-get install -y \
     vim \
     nano \
     git \
     && rm -rf /var/lib/apt/lists/*
 
-# Switch back to root for development (to install more packages if needed)
-USER root
-
-# Install dev dependencies
-COPY --from=builder /install /usr/local
 COPY requirements.txt .
 
 RUN pip install --no-cache-dir \
@@ -89,9 +87,6 @@ RUN pip install --no-cache-dir \
     mypy \
     jupyter
 
-# Switch back to non-root
 USER appuser
 
-# Development command - drop into bash
 CMD ["/bin/bash"]
-
