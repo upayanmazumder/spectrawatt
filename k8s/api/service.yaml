@@ -1,0 +1,12 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: spectrawatt-api
+  namespace: spectrawatt
+spec:
+  selector:
+    app: spectrawatt-api
+  ports:
+    - port: 8080
+      targetPort: 8080
+  type: ClusterIP

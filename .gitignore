@@ -91,3 +91,4 @@ yarn-error.log*
 
 # Optional: compiled notebooks (rendered outputs)
 *.nb.html
+*.pem

@@ -1,0 +1,75 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: spectrawatt-api
+  namespace: spectrawatt
+  labels:
+    app: spectrawatt-api
+  annotations:
+    keel.sh/policy: force
+    keel.sh/trigger: poll
+    keel.sh/match-tag: "true"
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: spectrawatt-api
+  template:
+    metadata:
+      labels:
+        app: spectrawatt-api
+    spec:
+      affinity:
+        podAntiAffinity:
+          preferredDuringSchedulingIgnoredDuringExecution:
+            - weight: 100
+              podAffinityTerm:
+                labelSelector:
+                  matchExpressions:
+                    - key: app
+                      operator: In
+                      values:
+                        - spectrawatt-api
+                topologyKey: kubernetes.io/hostname
+      securityContext:
+        fsGroup: 1000
+      containers:
+        - name: spectrawatt-api
+          image: ghcr.io/upayanmazumder/spectrawatt/api:latest
+          imagePullPolicy: Always
+          ports:
+            - containerPort: 8080
+          envFrom:
+            - secretRef:
+                name: spectrawatt-api-secrets
+          volumeMounts:
+            - name: mqtt-ca
+              mountPath: /etc/mqtt/ca
+              readOnly: true
+          resources:
+            requests:
+              memory: "128Mi"
+              cpu: "100m"
+            limits:
+              memory: "256Mi"
+              cpu: "200m"
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: 8080
+            initialDelaySeconds: 30
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 3
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: 8080
+            initialDelaySeconds: 10
+            periodSeconds: 5
+            timeoutSeconds: 3
+            failureThreshold: 3
+      volumes:
+        - name: mqtt-ca
+          secret:
+            secretName: mqtt-ca

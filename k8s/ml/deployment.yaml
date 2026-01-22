@@ -1,0 +1,74 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: spectrawatt-ml
+  namespace: spectrawatt
+  labels:
+    app: spectrawatt-ml
+  annotations:
+    keel.sh/policy: force
+    keel.sh/trigger: poll
+    keel.sh/match-tag: "true"
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: spectrawatt-ml
+  template:
+    metadata:
+      labels:
+        app: spectrawatt-ml
+    spec:
+      nodeSelector:
+        kubernetes.io/hostname: vps
+      securityContext:
+        fsGroup: 1000
+      containers:
+        - name: spectrawatt-ml
+          image: ghcr.io/upayanmazumdeer/spectrawatt/ml:latest
+          imagePullPolicy: Always
+          ports:
+            - containerPort: 8000
+          envFrom:
+            - secretRef:
+                name: spectrawatt-ml-secrets
+          env:
+            - name: TRANSFORMERS_CACHE
+              value: /opt/hf_cache
+            - name: HF_HOME
+              value: /opt/hf_cache
+            - name: HF_DATASETS_CACHE
+              value: /opt/hf_cache
+            - name: HF_MODULES_CACHE
+              value: /opt/hf_cache
+          resources:
+            requests:
+              memory: "512Mi"
+              cpu: "250m"
+            limits:
+              memory: "1536Mi"
+              cpu: "750m"
+          startupProbe:
+            httpGet:
+              path: /health
+              port: 8000
+            initialDelaySeconds: 60
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 30
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: 8000
+            initialDelaySeconds: 30
+            periodSeconds: 30
+            timeoutSeconds: 5
+            failureThreshold: 3
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: 8000
+            initialDelaySeconds: 20
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 3
