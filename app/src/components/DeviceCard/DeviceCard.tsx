@@ -57,7 +57,7 @@ export default function DeviceCard({
 	const deviceIcon = getDeviceIcon(deviceId);
 
 	return (
-		<div className="relative w-full max-w-[339px] aspect-[339/216] drop-shadow-md">
+		<div className="relative w-full max-w-84.75 aspect-339/216 drop-shadow-md">
 			<svg
 				className="absolute h-full w-full"
 				viewBox="0 0 339 216"
@@ -70,36 +70,36 @@ export default function DeviceCard({
 				/>
 			</svg>
 			<div className="absolute inset-0 h-full w-full">
-				<div className="absolute right-[3%] top-[0%] flex h-[26%] min-h-[45px] w-1/4 min-w-[72px] items-center justify-center rounded-full bg-white text-[12px] font-semibold uppercase tracking-[0.08em] text-gray-800">
+				<div className="absolute right-[3%] top-[0%] flex h-[26%] min-h-11.25 w-1/4 min-w-18 items-center justify-center rounded-full bg-white text-[12px] font-semibold uppercase tracking-[0.08em] text-gray-800">
 					{isOnline ? "Online" : "Offline"}
 				</div>
 
 				<div className="absolute left-[4.28%] top-[4.44%] flex h-7 w-7 items-center justify-center rounded-full bg-white">
 					<Icon
 						icon={deviceIcon}
-						className="h-[18px] w-[18px] text-gray-800"
+						className="h-4.5 w-4.5 text-gray-800"
 						aria-label={`${deviceId} icon`}
 					/>
 				</div>
 
-				<div className="absolute left-[21px] top-[50px] flex h-[50px] w-[150px] items-center justify-start">
+				<div className="absolute left-5.25 top-12.5 flex h-12.5 w-37.5 items-center justify-start">
 					<span className="text-[22px] font-semibold text-white">
 						{deviceId || "Device"}
 					</span>
 				</div>
 
-				<div className="absolute left-[21px] top-[95px] text-[26px] font-light text-white">
+				<div className="absolute left-5.25 top-23.75 text-[26px] font-light text-white">
 					{formatNumber(averagePower, 1)} W
 				</div>
 
-				<div className="absolute left-[26px] top-[146px] flex h-[21px] w-[180px] items-center rounded-full bg-black">
-					<span className="ml-[10px] whitespace-nowrap text-[10px] font-medium text-white">
+				<div className="absolute left-6.5 top-36.5 flex h-5.25 w-45 items-center rounded-full bg-black">
+					<span className="ml-2.5 whitespace-nowrap text-[10px] font-medium text-white">
 						Last active: {formatRelativeTime(lastActive)}
 					</span>
 				</div>
 
-				<div className="absolute left-[26px] top-[173px] flex h-[21px] w-[180px] items-center rounded-full bg-black">
-					<span className="ml-[10px] whitespace-nowrap text-[10px] font-medium text-white">
+				<div className="absolute left-6.5 top-43.25 flex h-5.25 w-45 items-center rounded-full bg-black">
+					<span className="ml-2.5 whitespace-nowrap text-[10px] font-medium text-white">
 						Today: {formatNumber(totalWh ?? wh, 2)} Wh
 					</span>
 				</div>

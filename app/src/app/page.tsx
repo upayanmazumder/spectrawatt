@@ -4,10 +4,12 @@ import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import ActiveDevices from "@/components/ActiveDevices/ActiveDevices";
 import DeviceCard from "@/components/DeviceCard/DeviceCard";
+import Loader from "@/components/Loader/Loader";
 import {
 	fetchDeviceGroups,
 	type DeviceGroupSummary,
 } from "@/components/Sidebar/lib/api";
+import { Github } from "lucide-react";
 
 type FetchState = "idle" | "loading" | "success" | "error";
 
@@ -90,10 +92,11 @@ export default function Home() {
 					</p>
 				</div>
 				<Link
-					href="/live"
+					href="https://github.com/upayanmazumder/spectrawatt"
+					target="_blank"
 					className="inline-flex items-center gap-2 rounded-full border border-sky-200 bg-sky-50 px-4 py-2 text-sm font-medium text-sky-800 shadow-sm transition hover:-translate-y-0.5 hover:shadow-md dark:border-sky-800/60 dark:bg-sky-900/40 dark:text-sky-100"
 				>
-					Go to Live View
+					<Github /> Github Repository
 				</Link>
 			</header>
 
@@ -123,33 +126,36 @@ export default function Home() {
 						</span>
 					</header>
 
-					{deviceGroups.length === 0 && status !== "loading" ?
+					{status === "loading" ?
+						<div className="flex w-full items-center justify-center py-12">
+							<Loader />
+						</div>
+					: deviceGroups.length === 0 ?
 						<div className="mt-4 rounded-xl border border-dashed border-zinc-300 px-4 py-6 text-sm text-zinc-600 dark:border-zinc-800 dark:text-zinc-400">
 							No devices have reported data yet. Once readings arrive, they will
 							appear here.
 						</div>
-					:	null}
-
-					<div className="mt-4 grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
-						{deviceGroups.map((group) => {
-							const latest = group.latest_reading;
-							const online = isOnline(latest?.timestamp);
-							return (
-								<DeviceCard
-									key={group.device_id}
-									deviceId={group.device_id}
-									status={online ? "online" : "offline"}
-									lastActive={latest?.timestamp ?? null}
-									vrms={latest?.vrms}
-									irms={latest?.irms}
-									apparentPower={latest?.apparent_power}
-									wh={latest?.wh}
-									averagePower={group.average_power}
-									totalWh={group.total_wh}
-								/>
-							);
-						})}
-					</div>
+					:	<div className="mt-4 grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
+							{deviceGroups.map((group) => {
+								const latest = group.latest_reading;
+								const online = isOnline(latest?.timestamp);
+								return (
+									<DeviceCard
+										key={group.device_id}
+										deviceId={group.device_id}
+										status={online ? "online" : "offline"}
+										lastActive={latest?.timestamp ?? null}
+										vrms={latest?.vrms}
+										irms={latest?.irms}
+										apparentPower={latest?.apparent_power}
+										wh={latest?.wh}
+										averagePower={group.average_power}
+										totalWh={group.total_wh}
+									/>
+								);
+							})}
+						</div>
+					}
 				</section>
 			</div>
 		</div>
